@@ -1,0 +1,15 @@
+# Heavy, optional ML extras.
+#
+# The application runs WITHOUT these installed: speech-to-text returns a clear
+# 503 and the RAG pipeline falls back to a deterministic hashing embedder that
+# is good enough for tests but not for real retrieval quality.
+#
+# Install with:  pip install -r requirements-ml.txt
+#
+# NOTE: sentence-transformers pulls in torch (~2 GB). On a CPU-only machine
+# install the CPU wheel first to avoid downloading CUDA:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+sentence-transformers>=3.3.0   # multilingual embeddings for RAG
+faster-whisper>=1.1.0          # CPU-friendly Whisper for speech-to-text
+pgvector>=0.3.6                # native vector column type for PostgreSQL

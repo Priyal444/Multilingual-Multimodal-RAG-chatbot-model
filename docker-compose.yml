@@ -1,0 +1,79 @@
+name: polyglot
+
+services:
+  postgres:
+    # pgvector/pgvector ships the vector extension preinstalled; the migration
+    # only has to CREATE EXTENSION.
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: polyglot
+      POSTGRES_PASSWORD: polyglot
+      POSTGRES_DB: polyglot
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U polyglot -d polyglot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "no", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    # Migrations run before the server so a fresh volume comes up ready.
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://polyglot:polyglot@postgres:5432/polyglot
+      REDIS_URL: redis://redis:6379/0
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY in your .env}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY in your .env}
+      LLM_MODEL: ${LLM_MODEL:-claude-opus-5}
+      LLM_EFFORT: ${LLM_EFFORT:-low}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      LOG_JSON: ${LOG_JSON:-true}
+      CORS_ORIGINS: '["http://localhost:8501"]'
+      STORAGE_DIR: /app/storage
+    ports:
+      - "8000:8000"
+    volumes:
+      - storage_data:/app/storage
+      # Cached model weights survive a rebuild — re-downloading Whisper and the
+      # embedding model on every `up` is minutes of nothing.
+      - hf_cache:/home/appuser/.cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  ui:
+    build: .
+    command: >
+      streamlit run frontend/streamlit_app.py
+      --server.port 8501 --server.address 0.0.0.0 --server.headless true
+    environment:
+      POLYGLOT_API_URL: http://api:8000
+    ports:
+      - "8501:8501"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  storage_data:
+  hf_cache:
